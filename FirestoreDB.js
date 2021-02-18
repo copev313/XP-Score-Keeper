@@ -30,7 +30,7 @@ const ALLOWWRITE = ['Evan']
 const ALLOWDELETE = ['Evan']
 // ON/OFF Switch for Document Deletions:
 const ALLOWDOCDELETION = false
-// A Safe Place to Store Our Firebase Project Credentials:
+// A Safe Place to Store Our Firebase Project Credentials (specific to Google Apps Script):
 const PROPS = PropertiesService.getUserProperties()
 
 
@@ -39,7 +39,7 @@ const PROPS = PropertiesService.getUserProperties()
  ** ========================================================================================== */
 
 /**
- * Helper function retreives just the first name of the user sending a chat's message.
+ * Retreives just the first name of the user sending a chat's message.
  * @param {object} event The event object from Hangouts Chat.
  * @return {string} The first name from the user's chat display name.
  */
@@ -47,16 +47,16 @@ const _firstNameOnly = (event) => {
   // Grab the display name:
   const displayName = event.user.displayName
   // Split the name at the space and store as an array:
-  const splitName = displayName.split(" ", 2)
+  const splitNames = displayName.split(" ", 2)
   // Return just the first name:
-  return splitName[0]
+  return splitNames[0]
 }
 
 
-// Handles GET requests.
+// Handles GET requests in Apps Script.
 const doGet = (e) => e
 
-// Handles POST requests.
+// Handles POST requests in Apps Script.
 const doPost = (e) => e
 
 
@@ -64,7 +64,7 @@ const doPost = (e) => e
     == == == == == == == == == == FIRESTORE CLOUD DATABASE STUFF == == == == == == == == == ==
  ** ========================================================================================== */
 
-// Store Credential Properties:
+// Assign Credential Properties:
 const [email, key, project_id] = [PROPS.getProperty('client_email'),
                                   PROPS.getProperty('private_key'),
                                   PROPS.getProperty('project_id')]
@@ -78,8 +78,8 @@ const fs = FirestoreApp.getFirestore(email, key, project_id)
  **~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 
 /**
- * Creates a new document in the given collection by specifying the name/id and data to add.
- * 
+ * Creates a new document in the given collection by specifying the name/id and data to add to the
+ *     document.
  * @param {object} event The Google Chat event.
  * @param {string} doc_name The new documents name/id value.
  * @param {object=DEFAULTDOC} data The key-value data to initialize in the document.
@@ -89,7 +89,7 @@ const fs = FirestoreApp.getFirestore(email, key, project_id)
 const _CreateDocument_ = (event, doc_name, data=DEFAULTDOC, collection=COLLECTION) => {
 
   const firstName = _firstNameOnly(event)
-  let message = ''
+  let message = `Sorry ${firstName}, you do not have write permissions.`
 
   // [CASE] check ALLOWWRITE Permissions:
   if (ALLOWWRITE.includes(firstName)) {
@@ -98,13 +98,9 @@ const _CreateDocument_ = (event, doc_name, data=DEFAULTDOC, collection=COLLECTIO
     // POST the request & store data returned:
     const res = doPost(req)
     // Take object returned by POST request & select just the data as JSON.
-    const parse = JSON.stringify(res.obj)
+    const json = JSON.stringify(res.obj)
     // Confirmation message.
-    message = `Created a new peep in ${collection}!\n${doc_name}: ${parse}`
-  } 
-  // [CASE] Access Denied:
-  else {
-    message = `Sorry ${firstName}, you do not have write permissions.`
+    message = `There's a new peep in ${collection}!\n${doc_name}: ${json}`
   }
 
   return message
@@ -112,30 +108,27 @@ const _CreateDocument_ = (event, doc_name, data=DEFAULTDOC, collection=COLLECTIO
 
 
 /**
- * Retreives a document from a collection based on the document's name/id.
- * 
+ * Returns a document from a given collection based on the document's name/id.
  * @param {object} event The Google Chat event.
  * @param {string} doc_name The document name/id value to look for.
- * @param {boolean=false} just_data Whether to read in just the data of the doc, or the whole thing.
+ * @param {boolean=false} data_only Whether to read in just the data of the doc, or the whole thing.
  * @param {string=COLLECTION} collection The name of the collection where the document can be found.
- * @return {object} The document object (or just its data) as JSON. Returns false if
- *     the user does not have READ permissions.
+ * @return {object} The document object (or just its data) as JSON. Returns an empty object if the
+ *     user does not have READ permissions.
  */
-const _ReadDocument_ = (event, doc_name, just_data=false, collection=COLLECTION) => {
+const _ReadDocument_ = (event, doc_name, data_only=false, collection=COLLECTION) => {
 
   const firstName = _firstNameOnly(event)
-  let object = {}
+  let object = Object()
 
   // [CASE] Check ALLOWREAD Permissions:
   if (ALLOWREAD.includes(firstName)) {
     const req = fs.getDocument(`${collection}/${doc_name}`)
     const res = doGet(req)
-    if (just_data) { object = res.obj }
+    // [CASE] Requesting Data Only:
+    if (data_only) { object = res.obj }
+    // [CASE] Requesting Entire Doc:
     else { object = res }
-  }
-  // [CASE] Access Denied:
-  else {
-    object =  false
   }
 
   return object
@@ -144,16 +137,16 @@ const _ReadDocument_ = (event, doc_name, just_data=false, collection=COLLECTION)
 
 /**
  * Updates the data of a specific document in a given collection.
- * 
  * @param {object} event The Google Chat event.
  * @param {string} doc_name The name/id of the document to update.
  * @param {object} new_data The new key-value data used to update the doc.
  * @param {string=COLLECTION} collection The collection where the document can be found.
- * @param {boolean=true} only_specific Sets whether the update will only affect the specific data
- *     from new_data, or will override all the existing data of the document.
+ * @param {boolean=true} only_specific Sets whether the update will only add/update the specific data
+ *     from new_data, or will overwrite all the existing data of the document.
  * @return {string} message A message confirming the update or denying access because of permissions.
  */
-const _UpdateDocument_ = (event, doc_name, new_data, collection=COLLECTION, only_specific=true) => {
+const _UpdateDocument_ = (event, doc_name, new_data,
+                          collection=COLLECTION, only_specific=true) => {
 
   const firstName = _firstNameOnly(event)
   let message = `Sorry ${firstName}, you do not have write permissions.`
@@ -172,9 +165,8 @@ const _UpdateDocument_ = (event, doc_name, new_data, collection=COLLECTION, only
 
 
 /**
- * Deletes a specific document given the document name/id and collection.
- * With great power comes great responsibility!
- * 
+ * Deletes a document given the document's name/id and collection.
+ * Remember, with great power comes great responsibility!
  * @param {object} event The Google Chat event. 
  * @param {string} doc_name The name/id of the document to delete.
  * @param {string} collection The name of the collection being targetted.
